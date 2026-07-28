@@ -74,3 +74,20 @@ jobs:
             mock-result/*.rpm
             mock-result/*.log
           if-no-files-found: error
+
+      - name: Notify rpm-repo of new build
+        if: success() && github.ref == 'refs/heads/master'
+        env:
+          RPM_REPO_DISPATCH_TOKEN: ${{ secrets.RPM_REPO_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+          curl -fsSL \
+            -X POST \
+            -H "Accept: application/vnd.github+json" \
+            -H "Authorization: Bearer ${RPM_REPO_DISPATCH_TOKEN}" \
+            https://api.github.com/repos/stackedrackzz/rpm-repo/dispatches \
+            -d "$(jq -n \
+                  --arg repo "stackedrackzz/gitea-tor-forge" \
+                  --arg run_id "${{ github.run_id }}" \
+                  --arg artifact "gitea-tor-forge-rpm-${{ steps.meta.outputs.safe_ref }}-${{ github.sha }}" \
+                  '{event_type: "external-package-build", client_payload: {source_repo: $repo, run_id: $run_id, artifact_name: $artifact}}')"
