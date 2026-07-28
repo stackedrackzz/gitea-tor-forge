@@ -1,0 +1,93 @@
+# All three services use host networking so they can reach the qube's
+# own Tor SOCKS proxy at 127.0.0.1:9050 without fighting podman's bridge
+# networking / missing resolv.conf issues on minimal qubes. This stack is
+# meant to be the only thing on this qube, so the port usage below
+# (5432, 3000, 2222, 8099) is assumed uncontested.
+services:
+  postgres:
+    image: docker.io/library/postgres:16-alpine
+    container_name: gitea-tor-forge-postgres
+    restart: always
+    network_mode: host
+    command: ["-c", "listen_addresses=127.0.0.1"]
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-gitea}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      POSTGRES_DB: ${POSTGRES_DB:-gitea}
+    volumes:
+      - gitea-tor-forge-postgres:/var/lib/postgresql/data
+
+  gitea:
+    image: docker.io/gitea/gitea:latest
+    container_name: gitea-tor-forge-gitea
+    restart: always
+    network_mode: host
+    depends_on:
+      - postgres
+    environment:
+      GITEA__database__DB_TYPE: postgres
+      GITEA__database__HOST: 127.0.0.1:5432
+      GITEA__database__NAME: ${POSTGRES_DB:-gitea}
+      GITEA__database__USER: ${POSTGRES_USER:-gitea}
+      GITEA__database__PASSWD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD required}
+      GITEA__server__HTTP_PORT: ${GITEA_HTTP_PORT:-3000}
+      GITEA__server__SSH_PORT: ${GITEA_SSH_PORT:-2222}
+      # Gitea's official image runs as a non-root user, so its SSH_PORT
+      # default alone isn't enough -- without this it still tries to
+      # bind the (privileged, and separately conflicting) port 22.
+      GITEA__server__SSH_LISTEN_PORT: ${GITEA_SSH_PORT:-2222}
+      GITEA__server__ROOT_URL: ${GITEA_ROOT_URL:-http://127.0.0.1:3000/}
+      GITEA__security__INSTALL_LOCK: "true"
+      # Gitea's SSRF protection refuses to deliver webhooks to loopback
+      # addresses by default. mirror-agent's webhook listener is loopback
+      # by design (same host-netns), so it must be explicitly allowed.
+      GITEA__webhook__ALLOWED_HOST_LIST: loopback
+      # Gitea's own native mirror feature is unused -- mirror-agent does
+      # the actual push itself, per mirror-policy.ini, so it can apply
+      # arbitrary per-repo remotes/auth/proxies that Gitea's push-mirror
+      # API can't express (e.g. an SSH keyfile).
+    volumes:
+      - gitea-tor-forge-data:/data
+
+  mirror-agent:
+    build:
+      context: ../mirror-agent
+    container_name: gitea-tor-forge-mirror-agent
+    restart: always
+    network_mode: host
+    depends_on:
+      - gitea
+    environment:
+      GITEA_INTERNAL_URL: http://127.0.0.1:${GITEA_HTTP_PORT:-3000}
+      GITEA_CONTAINER_NAME: gitea-tor-forge-gitea
+      GITEA_ADMIN_USER: ${GITEA_ADMIN_USER:-mirror-admin}
+      GITEA_ADMIN_PASSWORD: ${GITEA_ADMIN_PASSWORD:?GITEA_ADMIN_PASSWORD required}
+      GITEA_ADMIN_EMAIL: ${GITEA_ADMIN_EMAIL:-mirror-admin@localhost}
+      GITEA_API_TOKEN_FILE: /data/gitea-api-token
+      WEBHOOK_SECRET: ${WEBHOOK_SECRET:?WEBHOOK_SECRET required}
+      GITHUB_OWNER: ${GITHUB_OWNER:?GITHUB_OWNER required}
+      GITHUB_VISIBILITY: ${GITHUB_VISIBILITY:-private}
+      POLICY_FILE: /etc/gitea-tor-forge/mirror-policy.ini
+      GH_TOKEN: ${GH_TOKEN:?GH_TOKEN required}
+      LISTEN_PORT: "8099"
+      # gh (Go HTTP client) honors these directly; per-repo policy entries
+      # can override the tunnel (or disable it) for their own push. Must
+      # exclude loopback or every call to Gitea's own local API/health
+      # endpoint gets routed through Tor too, which just breaks them.
+      ALL_PROXY: socks5h://127.0.0.1:9050
+      HTTPS_PROXY: socks5h://127.0.0.1:9050
+      HTTP_PROXY: socks5h://127.0.0.1:9050
+      NO_PROXY: 127.0.0.1,localhost
+      no_proxy: 127.0.0.1,localhost
+      CONTAINER_HOST: unix:///run/podman/podman.sock
+    volumes:
+      - gitea-tor-forge-mirror-agent-data:/data
+      - ${PODMAN_SOCKET:-/run/user/1000/podman/podman.sock}:/run/podman/podman.sock
+      - ${MIRROR_POLICY_FILE:-/etc/gitea-tor-forge/mirror-policy.ini}:/etc/gitea-tor-forge/mirror-policy.ini:ro
+      - ${MIRROR_SECRETS_DIR:-/etc/gitea-tor-forge/secrets}:/etc/gitea-tor-forge/secrets:ro
+      - ${MIRROR_KEYS_DIR:-/etc/gitea-tor-forge/keys}:/etc/gitea-tor-forge/keys:ro
+
+volumes:
+  gitea-tor-forge-postgres:
+  gitea-tor-forge-data:
+  gitea-tor-forge-mirror-agent-data:

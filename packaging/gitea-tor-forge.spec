@@ -1,0 +1,95 @@
+Name:           gitea-tor-forge
+Version:        0.1.0
+Release:        1%{?dist}
+Summary:        Podman-composed Gitea forge that mirrors repos out over Tor
+License:        MIT
+URL:            https://example.invalid/gitea-tor-forge
+BuildArch:      noarch
+
+Source0:        %{name}-%{version}.tar.gz
+
+BuildRequires:  systemd-rpm-macros
+
+Requires:       podman >= 5.0
+Requires:       podman-compose
+Requires:       tor
+Requires:       systemd
+
+%description
+gitea-tor-forge runs a Gitea forge (git server + web UI + API) as a
+podman-compose stack, managed by systemd. A companion mirror-agent
+container watches Gitea's system webhook (fired on every repo creation
+and every push) and, per a per-repo policy file, ensures a mirror of
+that repo exists at a remote git host -- creating it there first if
+necessary -- and pushes to it. All outbound mirror traffic and GitHub
+API calls are tunneled through a local Tor SOCKS proxy by default.
+
+Policy is per-repo: each entry chooses its own remote URL, SSH-keyfile
+or username/password authentication, and its own SOCKS proxy (or none).
+Repos with no explicit entry fall back to a default policy that mirrors
+to a GitHub account over HTTPS through Tor, auto-creating the GitHub
+repo if it doesn't already exist.
+
+%prep
+%setup -q
+
+%build
+# nothing to compile
+
+%install
+install -Dm0644 compose/compose.yaml %{buildroot}%{_datadir}/%{name}/compose/compose.yaml
+install -Dm0644 mirror-agent/Containerfile %{buildroot}%{_datadir}/%{name}/mirror-agent/Containerfile
+install -Dm0755 mirror-agent/entrypoint.sh %{buildroot}%{_datadir}/%{name}/mirror-agent/entrypoint.sh
+install -Dm0755 mirror-agent/webhook_server.py %{buildroot}%{_datadir}/%{name}/mirror-agent/webhook_server.py
+
+install -Dm0644 packaging/systemd/gitea-tor-forge.service %{buildroot}%{_unitdir}/gitea-tor-forge.service
+install -Dm0644 packaging/tor/50-gitea-tor-forge.conf %{buildroot}%{_sysconfdir}/tor/torrc.d/50-gitea-tor-forge.conf
+
+install -Dm0644 packaging/config/env.example %{buildroot}%{_sysconfdir}/%{name}/env
+install -Dm0644 packaging/config/mirror-policy.ini.example %{buildroot}%{_sysconfdir}/%{name}/mirror-policy.ini
+
+install -dm0700 %{buildroot}%{_sysconfdir}/%{name}/secrets
+install -dm0700 %{buildroot}%{_sysconfdir}/%{name}/keys
+
+%post
+systemctl daemon-reload >/dev/null 2>&1 || :
+systemctl enable tor.service >/dev/null 2>&1 || :
+cat <<'EOF'
+
+gitea-tor-forge installed. Before starting it:
+
+  1. Edit /etc/gitea-tor-forge/env: set POSTGRES_PASSWORD,
+     GITEA_ADMIN_PASSWORD, WEBHOOK_SECRET, GITHUB_OWNER, GH_TOKEN, and
+     PODMAN_SOCKET (check with:
+       podman info --format '{{.Host.RemoteSocket.Path}}').
+  2. Put a GitHub token (or other default remote's password) at
+     /etc/gitea-tor-forge/secrets/github.token (root-only, mode 0600).
+  3. Edit /etc/gitea-tor-forge/mirror-policy.ini to add any per-repo
+     overrides (different remote host, SSH keyfile auth, or no tunnel).
+     SSH keys go under /etc/gitea-tor-forge/keys/, secrets/tokens under
+     /etc/gitea-tor-forge/secrets/ -- both are root:root 0700.
+  4. systemctl enable --now tor.service gitea-tor-forge.service
+
+EOF
+
+%preun
+if [ "$1" -eq 0 ]; then
+    systemctl disable --now gitea-tor-forge.service >/dev/null 2>&1 || :
+fi
+
+%postun
+systemctl daemon-reload >/dev/null 2>&1 || :
+
+%files
+%{_datadir}/%{name}/
+%{_unitdir}/gitea-tor-forge.service
+%config(noreplace) %{_sysconfdir}/tor/torrc.d/50-gitea-tor-forge.conf
+%dir %{_sysconfdir}/%{name}
+%config(noreplace) %{_sysconfdir}/%{name}/env
+%config(noreplace) %{_sysconfdir}/%{name}/mirror-policy.ini
+%dir %attr(0700,root,root) %{_sysconfdir}/%{name}/secrets
+%dir %attr(0700,root,root) %{_sysconfdir}/%{name}/keys
+
+%changelog
+* Tue Jul 28 2026 stackedrackzz <noreply@users.noreply.github.com> - 0.1.0-1
+- Initial packaging

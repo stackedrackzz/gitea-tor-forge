@@ -1,0 +1,50 @@
+# Per-repo mirror policy. Section name = Gitea repo name (exact match).
+# A repo with no matching section falls back to [default]. Both `remote`
+# (used as-is) and `remote_template` (substitutes ${repo}, ${GITHUB_OWNER})
+# are accepted; use whichever reads more naturally for that section.
+#
+# auth_type = password | keyfile | none
+#   password: auth_username + auth_password_file, embedded as an HTTPS
+#             basic-auth URL for the push. This is how the built-in
+#             GitHub default works (token-as-password).
+#   keyfile:  auth_keyfile, used as `ssh -i` for an ssh:// remote.
+#   none:     anonymous push (public remote that accepts it -- rare).
+#
+# proxy = socks5h://host:port, or left blank to push directly (no tunnel).
+# Secrets referenced here (auth_password_file / auth_keyfile) must be
+# mounted read-only into mirror-agent -- see MIRROR_SECRETS_DIR /
+# MIRROR_KEYS_DIR in env.example.
+
+[default]
+remote_template = https://github.com/${GITHUB_OWNER}/${repo}.git
+auth_type = password
+auth_username = ${GITHUB_OWNER}
+auth_password_file = /etc/gitea-tor-forge/secrets/github.token
+proxy = socks5h://127.0.0.1:9050
+github_autocreate = true
+
+# Example: mirror this one repo to a different, non-GitHub host over SSH,
+# authenticating with a dedicated deploy key instead of the default token.
+#[my-internal-repo]
+#remote = ssh://git@git.example.org:2222/mirrors/my-internal-repo.git
+#auth_type = keyfile
+#auth_keyfile = /etc/gitea-tor-forge/keys/my-internal-repo_ed25519
+#proxy = socks5h://127.0.0.1:9050
+
+# Example: mirror to a GitLab instance over HTTPS with its own token,
+# still tunneled through Tor.
+#[another-repo]
+#remote = https://gitlab.example.org/group/another-repo.git
+#auth_type = password
+#auth_username = mirror-bot
+#auth_password_file = /etc/gitea-tor-forge/secrets/another-repo.token
+#proxy = socks5h://127.0.0.1:9050
+
+# Example: mirror without any tunnel at all (direct push).
+#[public-repo]
+#remote = https://github.com/${GITHUB_OWNER}/public-repo.git
+#auth_type = password
+#auth_username = ${GITHUB_OWNER}
+#auth_password_file = /etc/gitea-tor-forge/secrets/github.token
+#proxy =
+#github_autocreate = true

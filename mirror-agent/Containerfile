@@ -1,0 +1,22 @@
+FROM fedora:latest
+
+RUN dnf -y install --setopt=install_weak_deps=False \
+        python3 \
+        git \
+        gh \
+        podman \
+        socat \
+        openssh-clients \
+        curl \
+    && dnf clean all
+
+COPY webhook_server.py /usr/local/bin/webhook_server.py
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod 0755 /usr/local/bin/webhook_server.py /usr/local/bin/entrypoint.sh
+
+# CONTAINER_HOST (set at runtime via compose) points the podman client at
+# the host's mounted socket -- this container never runs its own engine.
+ENV LISTEN_PORT=8099
+EXPOSE 8099
+
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]

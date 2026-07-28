@@ -1,0 +1,17 @@
+[Unit]
+Description=Gitea forge with Tor-tunneled mirroring (podman compose stack)
+After=network-online.target tor.service
+Wants=network-online.target
+Requires=tor.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+EnvironmentFile=/etc/gitea-tor-forge/env
+WorkingDirectory=/usr/share/gitea-tor-forge/compose
+ExecStart=/usr/bin/podman compose --env-file /etc/gitea-tor-forge/env -f /usr/share/gitea-tor-forge/compose/compose.yaml up -d
+ExecStop=/usr/bin/podman compose --env-file /etc/gitea-tor-forge/env -f /usr/share/gitea-tor-forge/compose/compose.yaml down
+TimeoutStartSec=600
+
+[Install]
+WantedBy=multi-user.target
