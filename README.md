@@ -129,6 +129,21 @@ addresses by default; the compose file sets
 `GITEA__webhook__ALLOWED_HOST_LIST=loopback` to allow the one loopback
 target (mirror-agent) it's actually meant to call.
 
+### Starting on boot in a Qubes AppVM
+
+`systemctl enable` alone isn't reliable for getting a service running at
+boot inside a Qubes AppVM -- the qube's own init sequence doesn't always
+carry that through the way a normal VM/bare-metal boot would. `%post`
+therefore also appends a guarded block to `/rw/config/rc.local` (Qubes'
+documented per-qube boot hook) that runs `systemctl start tor.service
+gitea-tor-forge.service` on every boot; `%preun` removes it again on
+uninstall. The `systemctl enable` call is kept too, harmlessly, for
+non-Qubes hosts where it works normally. This assumes the RPM is
+installed directly in the target qube (a StandaloneVM, or a
+TemplateVM used by only that one qube) -- `/rw` is per-qube private
+storage, so installing into a shared TemplateVM won't propagate the
+hook to other AppVMs based on it.
+
 ## Known limitations
 
 - `git push --mirror` doesn't update the *destination's* `HEAD` symref.

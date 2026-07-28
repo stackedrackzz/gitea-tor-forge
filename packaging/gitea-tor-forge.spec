@@ -54,6 +54,26 @@ install -dm0700 %{buildroot}%{_sysconfdir}/%{name}/keys
 %post
 systemctl daemon-reload >/dev/null 2>&1 || :
 systemctl enable tor.service >/dev/null 2>&1 || :
+
+# In a Qubes AppVM, `systemctl enable` alone is not reliable for getting
+# a service running at boot (the qube's own init sequence doesn't always
+# activate normal multi-user.target the way a bare-metal/VM boot would).
+# /rw/config/rc.local is the Qubes-documented per-qube boot hook, so it's
+# used here as the actual trigger; systemd enablement above is kept too
+# as a no-op-safe fallback for non-Qubes hosts where it does work.
+RC_LOCAL=/rw/config/rc.local
+if [ -d /rw/config ]; then
+    [ -f "$RC_LOCAL" ] || printf '#!/bin/sh\n' > "$RC_LOCAL"
+    chmod 0755 "$RC_LOCAL"
+    if ! grep -q '# BEGIN gitea-tor-forge' "$RC_LOCAL" 2>/dev/null; then
+        cat >> "$RC_LOCAL" <<'HOOK'
+# BEGIN gitea-tor-forge
+systemctl start tor.service gitea-tor-forge.service &
+# END gitea-tor-forge
+HOOK
+    fi
+fi
+
 cat <<'EOF'
 
 gitea-tor-forge installed. Before starting it:
@@ -69,12 +89,19 @@ gitea-tor-forge installed. Before starting it:
      SSH keys go under /etc/gitea-tor-forge/keys/, secrets/tokens under
      /etc/gitea-tor-forge/secrets/ -- both are root:root 0700.
   4. systemctl enable --now tor.service gitea-tor-forge.service
+     (this also happens automatically on next boot via
+     /rw/config/rc.local on Qubes; run it manually now to start
+     immediately without rebooting)
 
 EOF
 
 %preun
 if [ "$1" -eq 0 ]; then
     systemctl disable --now gitea-tor-forge.service >/dev/null 2>&1 || :
+    RC_LOCAL=/rw/config/rc.local
+    if [ -f "$RC_LOCAL" ]; then
+        sed -i '/# BEGIN gitea-tor-forge/,/# END gitea-tor-forge/d' "$RC_LOCAL" 2>/dev/null || :
+    fi
 fi
 
 %postun

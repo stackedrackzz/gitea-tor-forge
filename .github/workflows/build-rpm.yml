@@ -1,0 +1,76 @@
+name: Build RPM
+
+# Every push, on every branch (not just the default branch), so each
+# branch's history gets its own traceable RPM build.
+on:
+  push:
+    branches:
+      - '**'
+
+permissions:
+  contents: read
+
+jobs:
+  build-rpm:
+    runs-on: ubuntu-latest
+    container:
+      image: fedora:latest
+      # mock needs to chroot/bind-mount to build its buildroot.
+      options: --privileged
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Determine mock target
+        run: echo "MOCK_TARGET=fedora-$(rpm -E %fedora)-x86_64" >> "$GITHUB_ENV"
+
+      - name: Cache mock chroot
+        uses: actions/cache@v4
+        with:
+          path: /var/cache/mock
+          key: mock-${{ env.MOCK_TARGET }}-${{ hashFiles('packaging/gitea-tor-forge.spec') }}
+          restore-keys: |
+            mock-${{ env.MOCK_TARGET }}-
+
+      - name: Install build tools
+        run: dnf -y install rpm-build rpmdevtools mock tar
+
+      - name: Create unprivileged build user
+        run: |
+          useradd -m builder
+          usermod -aG mock builder
+          chown -R builder:builder "$GITHUB_WORKSPACE"
+
+      - name: Build source RPM
+        run: |
+          su builder -s /bin/bash -c '
+            set -euo pipefail
+            cd "$GITHUB_WORKSPACE"
+            rpmdev-setuptree
+            version=$(rpmspec -q --qf "%{version}\n" packaging/gitea-tor-forge.spec | head -1)
+            tar --transform "s,^,gitea-tor-forge-${version}/," \
+                -czf "$HOME/rpmbuild/SOURCES/gitea-tor-forge-${version}.tar.gz" \
+                compose mirror-agent packaging
+            rpmbuild -bs packaging/gitea-tor-forge.spec
+          '
+
+      - name: Build RPM with mock
+        run: |
+          set -euo pipefail
+          srpm=$(su builder -c 'ls $HOME/rpmbuild/SRPMS/*.src.rpm')
+          mkdir -p mock-result
+          chown builder:builder mock-result
+          su builder -c "mock -r $MOCK_TARGET --resultdir=$GITHUB_WORKSPACE/mock-result --rebuild $srpm"
+
+      - name: Sanitize branch name for artifact
+        id: meta
+        run: echo "safe_ref=${GITHUB_REF_NAME//\//-}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload RPM
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gitea-tor-forge-rpm-${{ steps.meta.outputs.safe_ref }}-${{ github.sha }}
+          path: |
+            mock-result/*.rpm
+            mock-result/*.log
+          if-no-files-found: error
