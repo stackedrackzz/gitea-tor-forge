@@ -1,5 +1,5 @@
 Name:           gitea-tor-forge
-Version:        0.2.0
+Version:        0.3.0
 Release:        1%{?dist}
 Summary:        Podman-composed Gitea forge that mirrors repos out over Tor
 License:        MIT
@@ -30,6 +30,13 @@ or username/password authentication, and its own SOCKS proxy (or none).
 Repos with no explicit entry fall back to a default policy that mirrors
 to a GitHub account over HTTPS through Tor, auto-creating the GitHub
 repo if it doesn't already exist.
+
+This RPM installs onto the qube that runs Gitea itself. dom0/ in the
+source repo (NOT part of this package's own %%files -- it runs on a
+different machine) provisions a dedicated qube for it and grants
+qubes tagged "devel" access to its HTTP/SSH ports via
+qrexec-tcp-bridge's local.ConnectTCP -- see dom0/provision-git-server-qube.sh
+and README.md.
 
 %prep
 %setup -q
@@ -121,6 +128,12 @@ systemctl daemon-reload >/dev/null 2>&1 || :
 %dir %attr(0700,root,root) %{_sysconfdir}/%{name}/keys
 
 %changelog
+* Wed Jul 29 2026 stackedrackzz <noreply@users.noreply.github.com> - 0.3.0-1
+- Document dom0/ (provision-git-server-qube.sh + access.conf.d
+  fragment): creates a dedicated qube for this package and grants
+  devel-tagged qubes access to its HTTP/SSH ports via
+  qrexec-tcp-bridge. Not part of this RPM's own %%files -- runs on
+  dom0, a different machine than this package installs onto.
 * Wed Jul 29 2026 stackedrackzz <noreply@users.noreply.github.com> - 0.2.0-1
 - Replace host-level Tor (torrc.d drop-in + tor.service) with a
   self-contained compose tor sidecar; TOR_SOCKS_PORT is configurable

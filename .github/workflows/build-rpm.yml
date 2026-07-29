@@ -49,7 +49,7 @@ jobs:
             version=$(rpmspec -q --qf "%{version}\n" packaging/gitea-tor-forge.spec | head -1)
             tar --transform "s,^,gitea-tor-forge-${version}/," \
                 -czf "$HOME/rpmbuild/SOURCES/gitea-tor-forge-${version}.tar.gz" \
-                compose mirror-agent tor packaging
+                compose mirror-agent tor packaging dom0
             rpmbuild -bs packaging/gitea-tor-forge.spec
           '
 

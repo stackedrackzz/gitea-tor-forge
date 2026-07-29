@@ -90,21 +90,21 @@ them in the policy file itself.
 ```sh
 cd gitea-tor-forge
 mkdir -p ~/rpmbuild/SOURCES
-tar --transform 's,^,gitea-tor-forge-0.2.0/,' \
-    -czf ~/rpmbuild/SOURCES/gitea-tor-forge-0.2.0.tar.gz \
-    compose mirror-agent tor packaging
+tar --transform 's,^,gitea-tor-forge-0.3.0/,' \
+    -czf ~/rpmbuild/SOURCES/gitea-tor-forge-0.3.0.tar.gz \
+    compose mirror-agent tor packaging dom0
 
 rpmbuild -bs packaging/gitea-tor-forge.spec
 
 mock -l | grep fedora   # pick the current release
 mock -r fedora-43-x86_64 --rebuild \
-    ~/rpmbuild/SRPMS/gitea-tor-forge-0.2.0-1*.src.rpm
+    ~/rpmbuild/SRPMS/gitea-tor-forge-0.3.0-1*.src.rpm
 ```
 
 ## Installing in the qube
 
 ```sh
-sudo dnf install ./gitea-tor-forge-0.2.0-1*.noarch.rpm
+sudo dnf install ./gitea-tor-forge-0.3.0-1*.noarch.rpm
 
 sudo $EDITOR /etc/gitea-tor-forge/env
 #   set POSTGRES_PASSWORD, GITEA_ADMIN_PASSWORD, WEBHOOK_SECRET,
@@ -145,6 +145,35 @@ installed directly in the target qube (a StandaloneVM, or a
 TemplateVM used by only that one qube) -- `/rw` is per-qube private
 storage, so installing into a shared TemplateVM won't propagate the
 hook to other AppVMs based on it.
+
+## Running this on a dedicated qube, reachable from devel qubes
+
+`dom0/` (run on dom0, NOT part of this RPM's own install -- that installs
+onto the qube this creates, a different machine):
+
+- `provision-git-server-qube.sh` -- creates a qube (`git-server` by default),
+  tags it `gitea-forge-host`, installs `qrexec-tcp-bridge` + this package onto
+  it from `rpm-repo`, drops `access.conf.d/20-gitea-forge.conf` into dom0's
+  own `/etc/qrexec-tcp-bridge/access.conf.d/`, and regenerates the qrexec
+  policy (`qrexec-tcp-bridge`'s `generate-policy.sh`).
+- `access.conf.d/20-gitea-forge.conf` -- grants qubes tagged `devel` access to
+  Gitea's HTTP (3000) and SSH (2222) ports specifically (not a wildcard) via
+  `qrexec-tcp-bridge`'s `local.ConnectTCP`. **Not** real IP networking --
+  `qvm-firewall` can't express "let other qubes reach this one" at all (it
+  only filters a qube's own outbound traffic); a devel qube reaches Gitea via:
+
+  ```
+  qrexec-client-vm git-server local.ConnectTCP+3000   # HTTP/web UI/API
+  qrexec-client-vm git-server local.ConnectTCP+2222   # SSH (git clone/push)
+  ```
+
+  Any qube meant to use this must be tagged manually: `qvm-tags <vmname> add
+  devel` -- not applied automatically by tagging/naming convention.
+
+**Untested against live qubesd** -- no real dom0 reachable from this
+package's development environment (same limitation as `qubes-rpc-user`'s and
+`dom0-podman-tcp`'s dom0-only scripts). Written against documented
+`qvm-create`/`qvm-tags`/`qvm-run` syntax, not verified live.
 
 ## Known limitations
 
