@@ -1,8 +1,7 @@
 [Unit]
 Description=Gitea forge with Tor-tunneled mirroring (podman compose stack)
-After=network-online.target tor.service
+After=network-online.target
 Wants=network-online.target
-Requires=tor.service
 
 [Service]
 Type=oneshot
