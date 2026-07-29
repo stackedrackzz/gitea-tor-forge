@@ -32,7 +32,7 @@ jobs:
             mock-${{ env.MOCK_TARGET }}-
 
       - name: Install build tools
-        run: dnf -y install rpm-build rpmdevtools mock tar
+        run: dnf -y install rpm-build rpmdevtools mock tar jq
 
       - name: Create unprivileged build user
         run: |
