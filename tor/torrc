@@ -1,0 +1,9 @@
+# SocksPort is supplied via CLI arg in entrypoint.sh (configurable via
+# $SOCKS_PORT) instead of hardcoded here -- network_mode: host means
+# this binds directly to the host's loopback, and the port needs to
+# stay overridable so it doesn't clash with a host Tor that might
+# already be running on the same qube.
+RunAsDaemon 0
+Log notice stdout
+Log notice file /var/log/tor/notices.log
+DataDirectory /var/lib/tor

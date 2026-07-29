@@ -53,7 +53,7 @@ GITHUB_VISIBILITY = os.environ.get("GITHUB_VISIBILITY", "private")
 POLICY_FILE = os.environ.get("POLICY_FILE", "/etc/gitea-tor-forge/mirror-policy.ini")
 LISTEN_PORT = int(os.environ.get("LISTEN_PORT", "8099"))
 GH_TOKEN = os.environ["GH_TOKEN"]
-DEFAULT_TOR_PROXY = "socks5h://127.0.0.1:9050"
+DEFAULT_TOR_PROXY = os.environ.get("DEFAULT_TOR_PROXY", "socks5h://127.0.0.1:9050")
 
 BUILTIN_DEFAULT_POLICY = {
     "remote_template": "https://github.com/${GITHUB_OWNER}/${repo}.git",

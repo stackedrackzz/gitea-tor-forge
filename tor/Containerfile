@@ -1,0 +1,23 @@
+# SOCKS-only Tor sidecar for this stack's outbound mirror traffic
+# (mirror-agent's git push / gh API calls). Unlike ai-stack's tor
+# sidecar, nothing here needs an HTTP-proxy translation layer -- git
+# and gh both speak SOCKS natively via ALL_PROXY=socks5h://... -- so
+# there's no Privoxy.
+#
+# Built directly from Debian (tor is in Debian's own repos), not a
+# random third-party image, matching how everything else here is built.
+FROM docker.io/library/debian:12-slim
+
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tor \
+ && rm -rf /var/lib/apt/lists/*
+
+COPY torrc /etc/tor/torrc
+COPY entrypoint.sh /entrypoint.sh
+# tor runs as root in this container (no user-separation hassle for an
+# internal-only sidecar) -- /var/lib/tor must match, or tor refuses to
+# start with "not owned by this user".
+RUN chmod +x /entrypoint.sh \
+ && chown -R root:root /var/lib/tor
+
+ENTRYPOINT ["/entrypoint.sh"]

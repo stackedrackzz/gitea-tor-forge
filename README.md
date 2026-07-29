@@ -31,18 +31,20 @@ repo, which is the whole point of the per-repo policy file below.
 
 ## Layout
 
-- `compose/compose.yaml` -- the stack: `postgres`, `gitea`, `mirror-agent`.
-  All three run with `network_mode: host` so they can reach the qube's own
-  Tor SOCKS proxy at `127.0.0.1:9050` directly, and so mirror-agent can
-  reach Gitea's HTTP API without fighting podman's bridge networking.
+- `compose/compose.yaml` -- the stack: `tor`, `postgres`, `gitea`,
+  `mirror-agent`. All four run with `network_mode: host` so they can reach
+  each other (and the tor sidecar's SOCKS proxy at
+  `127.0.0.1:${TOR_SOCKS_PORT:-9050}`) directly, without fighting podman's
+  bridge networking.
+- `tor/` -- the SOCKS proxy sidecar (Debian + `tor`, no host-level Tor
+  dependency). `SOCKS_PORT` is overridable per `TOR_SOCKS_PORT` in `env`,
+  in case something else on the qube already holds 9050.
 - `mirror-agent/` -- the webhook receiver (`webhook_server.py`, stdlib
   Python only) and its bootstrap (`entrypoint.sh`), packaged into a
   Containerfile.
 - `packaging/gitea-tor-forge.spec` -- RPM spec, built with `mock`.
 - `packaging/systemd/gitea-tor-forge.service` -- wraps `podman compose up
   -d` / `down` as a systemd oneshot unit.
-- `packaging/tor/50-gitea-tor-forge.conf` -- torrc.d drop-in pinning the
-  SOCKS port the stack depends on.
 - `packaging/config/env.example`, `mirror-policy.ini.example` -- config
   templates installed to `/etc/gitea-tor-forge/`.
 
@@ -88,21 +90,21 @@ them in the policy file itself.
 ```sh
 cd gitea-tor-forge
 mkdir -p ~/rpmbuild/SOURCES
-tar --transform 's,^,gitea-tor-forge-0.1.0/,' \
-    -czf ~/rpmbuild/SOURCES/gitea-tor-forge-0.1.0.tar.gz \
-    compose mirror-agent packaging
+tar --transform 's,^,gitea-tor-forge-0.2.0/,' \
+    -czf ~/rpmbuild/SOURCES/gitea-tor-forge-0.2.0.tar.gz \
+    compose mirror-agent tor packaging
 
 rpmbuild -bs packaging/gitea-tor-forge.spec
 
 mock -l | grep fedora   # pick the current release
 mock -r fedora-43-x86_64 --rebuild \
-    ~/rpmbuild/SRPMS/gitea-tor-forge-0.1.0-1*.src.rpm
+    ~/rpmbuild/SRPMS/gitea-tor-forge-0.2.0-1*.src.rpm
 ```
 
 ## Installing in the qube
 
 ```sh
-sudo dnf install ./gitea-tor-forge-0.1.0-1*.noarch.rpm
+sudo dnf install ./gitea-tor-forge-0.2.0-1*.noarch.rpm
 
 sudo $EDITOR /etc/gitea-tor-forge/env
 #   set POSTGRES_PASSWORD, GITEA_ADMIN_PASSWORD, WEBHOOK_SECRET,
@@ -112,7 +114,7 @@ install -m 0600 /path/to/github-token /etc/gitea-tor-forge/secrets/github.token
 sudo $EDITOR /etc/gitea-tor-forge/mirror-policy.ini   # add per-repo overrides
 
 sudo systemctl enable --now podman.socket   # if not already active
-sudo systemctl enable --now tor.service gitea-tor-forge.service
+sudo systemctl enable --now gitea-tor-forge.service
 ```
 
 `PODMAN_SOCKET` must point at a *live* podman API socket -- mirror-agent
@@ -135,7 +137,7 @@ target (mirror-agent) it's actually meant to call.
 boot inside a Qubes AppVM -- the qube's own init sequence doesn't always
 carry that through the way a normal VM/bare-metal boot would. `%post`
 therefore also appends a guarded block to `/rw/config/rc.local` (Qubes'
-documented per-qube boot hook) that runs `systemctl start tor.service
+documented per-qube boot hook) that runs `systemctl start
 gitea-tor-forge.service` on every boot; `%preun` removes it again on
 uninstall. The `systemctl enable` call is kept too, harmlessly, for
 non-Qubes hosts where it works normally. This assumes the RPM is

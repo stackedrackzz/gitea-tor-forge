@@ -1,9 +1,19 @@
-# All three services use host networking so they can reach the qube's
-# own Tor SOCKS proxy at 127.0.0.1:9050 without fighting podman's bridge
-# networking / missing resolv.conf issues on minimal qubes. This stack is
-# meant to be the only thing on this qube, so the port usage below
-# (5432, 3000, 2222, 8099) is assumed uncontested.
+# All services use host networking so they can reach each other (and
+# the tor sidecar's SOCKS proxy at 127.0.0.1:${TOR_SOCKS_PORT:-9050})
+# without fighting podman's bridge networking / missing resolv.conf
+# issues on minimal qubes. This stack is meant to be the only thing on
+# this qube, so the port usage below (5432, 3000, 2222, 8099, and
+# TOR_SOCKS_PORT) is assumed uncontested.
 services:
+  tor:
+    build:
+      context: ../tor
+    container_name: gitea-tor-forge-tor
+    restart: always
+    network_mode: host
+    environment:
+      SOCKS_PORT: ${TOR_SOCKS_PORT:-9050}
+
   postgres:
     image: docker.io/library/postgres:16-alpine
     container_name: gitea-tor-forge-postgres
@@ -57,6 +67,7 @@ services:
     network_mode: host
     depends_on:
       - gitea
+      - tor
     environment:
       GITEA_INTERNAL_URL: http://127.0.0.1:${GITEA_HTTP_PORT:-3000}
       GITEA_CONTAINER_NAME: gitea-tor-forge-gitea
@@ -74,9 +85,10 @@ services:
       # can override the tunnel (or disable it) for their own push. Must
       # exclude loopback or every call to Gitea's own local API/health
       # endpoint gets routed through Tor too, which just breaks them.
-      ALL_PROXY: socks5h://127.0.0.1:9050
-      HTTPS_PROXY: socks5h://127.0.0.1:9050
-      HTTP_PROXY: socks5h://127.0.0.1:9050
+      ALL_PROXY: socks5h://127.0.0.1:${TOR_SOCKS_PORT:-9050}
+      HTTPS_PROXY: socks5h://127.0.0.1:${TOR_SOCKS_PORT:-9050}
+      HTTP_PROXY: socks5h://127.0.0.1:${TOR_SOCKS_PORT:-9050}
+      DEFAULT_TOR_PROXY: socks5h://127.0.0.1:${TOR_SOCKS_PORT:-9050}
       NO_PROXY: 127.0.0.1,localhost
       no_proxy: 127.0.0.1,localhost
       CONTAINER_HOST: unix:///run/podman/podman.sock
